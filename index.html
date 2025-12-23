@@ -907,8 +907,8 @@
         </div>
     </div>
     
-    <!-- QR Code Styling Library -->
-    <script src="https://cdn.jsdelivr.net/npm/qr-code-styling@1.5.0/lib/qr-code-styling.js"></script>
+    <!-- QR Code Library with proper UTF-8 support -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
     
     <script>
         // Global State
@@ -946,39 +946,54 @@
             document.getElementById(valueId).textContent = value + suffix;
         }
         
-        // Create vCard
+        // Create vCard with proper UTF-8 encoding
         function createVCard() {
             const data = {
-                firstName: document.getElementById('firstName').value,
-                lastName: document.getElementById('lastName').value,
-                jobTitle: document.getElementById('jobTitle').value,
-                company: document.getElementById('company').value,
-                mobilePhone: document.getElementById('mobilePhone').value,
-                workPhone: document.getElementById('workPhone').value,
-                workEmail: document.getElementById('workEmail').value,
-                address: document.getElementById('address').value,
-                website: document.getElementById('website').value,
-                linkedin: document.getElementById('linkedin').value
+                firstName: document.getElementById('firstName').value.trim(),
+                lastName: document.getElementById('lastName').value.trim(),
+                jobTitle: document.getElementById('jobTitle').value.trim(),
+                company: document.getElementById('company').value.trim(),
+                mobilePhone: document.getElementById('mobilePhone').value.trim(),
+                workPhone: document.getElementById('workPhone').value.trim(),
+                workEmail: document.getElementById('workEmail').value.trim(),
+                address: document.getElementById('address').value.trim(),
+                website: document.getElementById('website').value.trim(),
+                linkedin: document.getElementById('linkedin').value.trim()
             };
             
-            // vCard 3.0 with UTF-8 encoding for Turkish/special characters
-            let vcard = `BEGIN:VCARD
-VERSION:3.0
-PRODID:-//Digital Business Card Generator//EN
-N;CHARSET=UTF-8:${data.lastName};${data.firstName};;;
-FN;CHARSET=UTF-8:${data.firstName} ${data.lastName}
-ORG;CHARSET=UTF-8:${data.company}
-TITLE;CHARSET=UTF-8:${data.jobTitle}
-TEL;TYPE=CELL:${data.mobilePhone}`;
+            // Build vCard 3.0 with UTF-8 encoding
+            let lines = [
+                'BEGIN:VCARD',
+                'VERSION:3.0',
+                'PRODID:-//Digital Business Card//EN',
+                `N;CHARSET=UTF-8:${data.lastName};${data.firstName};;;`,
+                `FN;CHARSET=UTF-8:${data.firstName} ${data.lastName}`,
+                `ORG;CHARSET=UTF-8:${data.company}`,
+                `TITLE;CHARSET=UTF-8:${data.jobTitle}`,
+                `TEL;TYPE=CELL:${data.mobilePhone}`
+            ];
             
-            if (data.workPhone) vcard += `\nTEL;TYPE=WORK:${data.workPhone}`;
-            vcard += `\nEMAIL;TYPE=WORK:${data.workEmail}`;
-            if (data.address) vcard += `\nADR;TYPE=WORK;CHARSET=UTF-8:;;${data.address};;;;`;
-            if (data.website) vcard += `\nURL:${data.website}`;
-            if (data.linkedin) vcard += `\nURL;TYPE=LinkedIn:${data.linkedin}`;
-            vcard += `\nEND:VCARD`;
+            if (data.workPhone) {
+                lines.push(`TEL;TYPE=WORK:${data.workPhone}`);
+            }
             
-            return vcard;
+            lines.push(`EMAIL;TYPE=WORK:${data.workEmail}`);
+            
+            if (data.address) {
+                lines.push(`ADR;TYPE=WORK;CHARSET=UTF-8:;;${data.address};;;;`);
+            }
+            
+            if (data.website) {
+                lines.push(`URL:${data.website}`);
+            }
+            
+            if (data.linkedin) {
+                lines.push(`URL;TYPE=LinkedIn:${data.linkedin}`);
+            }
+            
+            lines.push('END:VCARD');
+            
+            return lines.join('\r\n');
         }
         
         // Generate QR
@@ -1003,15 +1018,14 @@ TEL;TYPE=CELL:${data.mobilePhone}`;
             const ctx = canvas.getContext('2d');
             const size = 350;
             
-            // Clear canvas with background color
+            // Clear canvas
             ctx.fillStyle = bgColor;
             ctx.fillRect(0, 0, size, size);
             
-            // Draw background logo (watermark) first
+            // Draw background logo first if exists
             if (companyLogo) {
                 const bgImg = new Image();
                 bgImg.onload = function() {
-                    // Draw logo as watermark
                     ctx.globalAlpha = logoOpacity;
                     const logoW = size * logoSize;
                     const logoH = (bgImg.height / bgImg.width) * logoW;
@@ -1020,92 +1034,177 @@ TEL;TYPE=CELL:${data.mobilePhone}`;
                     ctx.drawImage(bgImg, logoX, logoY, logoW, logoH);
                     ctx.globalAlpha = 1;
                     
-                    // Draw QR code on top
-                    drawQRCode(ctx, size, primaryColor, secondaryColor, useGradient);
+                    // Then draw QR on top
+                    drawStyledQR(ctx, size, primaryColor, secondaryColor, useGradient, bgColor);
                 };
                 bgImg.src = companyLogo;
             } else {
-                // No logo, just draw QR
-                drawQRCode(ctx, size, primaryColor, secondaryColor, useGradient);
+                drawStyledQR(ctx, size, primaryColor, secondaryColor, useGradient, bgColor);
             }
             
-            // Update display info
+            // Update display
             document.getElementById('resultName').textContent = 
                 `${document.getElementById('firstName').value} ${document.getElementById('lastName').value}`;
             document.getElementById('resultTitle').textContent = 
                 document.getElementById('jobTitle').value;
             
-            // Show result section
+            // Show result
             document.getElementById('resultSection').classList.add('show');
             setTimeout(() => {
                 document.getElementById('resultSection').scrollIntoView({ behavior: 'smooth' });
             }, 100);
         }
         
-        function drawQRCode(ctx, size, primaryColor, secondaryColor, useGradient) {
-            // Create temporary container
-            const tempDiv = document.createElement('div');
-            tempDiv.style.position = 'absolute';
-            tempDiv.style.left = '-9999px';
-            document.body.appendChild(tempDiv);
+        // Draw styled QR code with proper UTF-8 support
+        function drawStyledQR(ctx, size, primaryColor, secondaryColor, useGradient, bgColor) {
+            // Create temporary canvas for QR
+            const tempCanvas = document.createElement('canvas');
             
-            const dotOptionsMap = {
-                'rounded': 'rounded',
-                'dots': 'dots',
-                'square': 'square',
-                'classy-rounded': 'classy-rounded'
-            };
-            
-            const qrOptions = {
-                width: size,
-                height: size,
-                type: 'canvas',
-                data: currentVCard,
-                margin: 15,
-                qrOptions: {
-                    typeNumber: 0,
-                    mode: 'Byte',
-                    errorCorrectionLevel: 'H'
-                },
-                dotsOptions: {
-                    type: dotOptionsMap[selectedDotStyle],
-                    color: primaryColor,
-                    gradient: useGradient ? {
-                        type: 'linear',
-                        rotation: 45,
-                        colorStops: [
-                            { offset: 0, color: primaryColor },
-                            { offset: 1, color: secondaryColor }
-                        ]
-                    } : undefined
-                },
-                backgroundOptions: {
-                    color: 'transparent'
-                },
-                cornersSquareOptions: {
-                    type: 'extra-rounded',
-                    color: primaryColor
-                },
-                cornersDotOptions: {
-                    type: 'dot',
-                    color: secondaryColor
+            // Use qrcode library with UTF-8 support
+            QRCode.toCanvas(tempCanvas, currentVCard, {
+                width: size - 30,
+                margin: 2,
+                errorCorrectionLevel: 'H',
+                color: {
+                    dark: '#000000',
+                    light: '#ffffff'
                 }
-            };
-            
-            const qrCode = new QRCodeStyling(qrOptions);
-            qrCode.append(tempDiv);
-            
-            // Wait for render then draw to main canvas
-            setTimeout(() => {
-                const qrCanvas = tempDiv.querySelector('canvas');
-                if (qrCanvas) {
-                    ctx.drawImage(qrCanvas, 0, 0, size, size);
+            }, function(error) {
+                if (error) {
+                    console.error('QR Error:', error);
+                    return;
                 }
-                document.body.removeChild(tempDiv);
-            }, 200);
+                
+                // Get QR data
+                const tempCtx = tempCanvas.getContext('2d');
+                const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                const data = imageData.data;
+                
+                // Calculate module size
+                const qrSize = tempCanvas.width;
+                const moduleCount = detectModuleCount(data, qrSize);
+                const moduleSize = (size - 30) / moduleCount;
+                const offset = 15;
+                
+                // Create gradient if enabled
+                let fillStyle;
+                if (useGradient) {
+                    const gradient = ctx.createLinearGradient(0, 0, size, size);
+                    gradient.addColorStop(0, primaryColor);
+                    gradient.addColorStop(1, secondaryColor);
+                    fillStyle = gradient;
+                } else {
+                    fillStyle = primaryColor;
+                }
+                
+                // Draw styled modules
+                ctx.fillStyle = fillStyle;
+                
+                for (let y = 0; y < moduleCount; y++) {
+                    for (let x = 0; x < moduleCount; x++) {
+                        const pixelX = Math.floor(x * qrSize / moduleCount);
+                        const pixelY = Math.floor(y * qrSize / moduleCount);
+                        const idx = (pixelY * qrSize + pixelX) * 4;
+                        
+                        // Check if dark module
+                        if (data[idx] < 128) {
+                            const posX = offset + x * moduleSize;
+                            const posY = offset + y * moduleSize;
+                            const drawSize = moduleSize * 0.85;
+                            const drawOffset = moduleSize * 0.075;
+                            
+                            drawModule(ctx, posX + drawOffset, posY + drawOffset, drawSize, selectedDotStyle);
+                        }
+                    }
+                }
+            });
         }
         
-        // Download QR as PNG
+        // Detect QR module count
+        function detectModuleCount(data, size) {
+            // Find first dark pixel from top-left
+            let firstDark = 0;
+            for (let i = 0; i < size; i++) {
+                const idx = (i * size + i) * 4;
+                if (data[idx] < 128) {
+                    firstDark = i;
+                    break;
+                }
+            }
+            
+            // Count modules in first row
+            let moduleCount = 0;
+            let inDark = false;
+            for (let x = 0; x < size; x++) {
+                const idx = (firstDark * size + x) * 4;
+                const isDark = data[idx] < 128;
+                if (isDark && !inDark) {
+                    moduleCount++;
+                    inDark = true;
+                } else if (!isDark) {
+                    inDark = false;
+                }
+            }
+            
+            // QR codes are typically 21, 25, 29, etc modules
+            const standardSizes = [21, 25, 29, 33, 37, 41, 45, 49, 53, 57];
+            let closest = standardSizes[0];
+            for (const s of standardSizes) {
+                if (Math.abs(s - moduleCount) < Math.abs(closest - moduleCount)) {
+                    closest = s;
+                }
+            }
+            
+            return closest;
+        }
+        
+        // Draw single module with style
+        function drawModule(ctx, x, y, size, style) {
+            const radius = size / 2;
+            
+            switch (style) {
+                case 'dots':
+                    ctx.beginPath();
+                    ctx.arc(x + radius, y + radius, radius * 0.9, 0, Math.PI * 2);
+                    ctx.fill();
+                    break;
+                    
+                case 'rounded':
+                    const r = size * 0.4;
+                    ctx.beginPath();
+                    ctx.moveTo(x + r, y);
+                    ctx.lineTo(x + size - r, y);
+                    ctx.quadraticCurveTo(x + size, y, x + size, y + r);
+                    ctx.lineTo(x + size, y + size - r);
+                    ctx.quadraticCurveTo(x + size, y + size, x + size - r, y + size);
+                    ctx.lineTo(x + r, y + size);
+                    ctx.quadraticCurveTo(x, y + size, x, y + size - r);
+                    ctx.lineTo(x, y + r);
+                    ctx.quadraticCurveTo(x, y, x + r, y);
+                    ctx.fill();
+                    break;
+                    
+                case 'classy-rounded':
+                    const cr = size * 0.5;
+                    ctx.beginPath();
+                    ctx.moveTo(x + cr, y);
+                    ctx.lineTo(x + size, y);
+                    ctx.lineTo(x + size, y + size - cr);
+                    ctx.quadraticCurveTo(x + size, y + size, x + size - cr, y + size);
+                    ctx.lineTo(x, y + size);
+                    ctx.lineTo(x, y + cr);
+                    ctx.quadraticCurveTo(x, y, x + cr, y);
+                    ctx.fill();
+                    break;
+                    
+                case 'square':
+                default:
+                    ctx.fillRect(x, y, size, size);
+                    break;
+            }
+        }
+        
+        // Download QR
         function downloadQR() {
             const canvas = document.getElementById('qrCanvas');
             const firstName = document.getElementById('firstName').value;
@@ -1117,14 +1216,22 @@ TEL;TYPE=CELL:${data.mobilePhone}`;
             link.click();
         }
         
-        // Download vCard
+        // Download vCard with UTF-8 BOM
         function downloadVCard() {
             const firstName = document.getElementById('firstName').value;
             const lastName = document.getElementById('lastName').value;
             
-            // Add UTF-8 BOM for proper Turkish character support
-            const BOM = '\uFEFF';
-            const blob = new Blob([BOM + currentVCard], { type: 'text/vcard;charset=utf-8' });
+            // UTF-8 BOM for proper encoding
+            const BOM = new Uint8Array([0xEF, 0xBB, 0xBF]);
+            const encoder = new TextEncoder();
+            const vcardBytes = encoder.encode(currentVCard);
+            
+            // Combine BOM and vCard
+            const combined = new Uint8Array(BOM.length + vcardBytes.length);
+            combined.set(BOM);
+            combined.set(vcardBytes, BOM.length);
+            
+            const blob = new Blob([combined], { type: 'text/vcard;charset=utf-8' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -1138,14 +1245,12 @@ TEL;TYPE=CELL:${data.mobilePhone}`;
             document.getElementById('cardForm').reset();
             document.getElementById('resultSection').classList.remove('show');
             
-            // Reset logo
             companyLogo = null;
             document.getElementById('logoPreview').style.display = 'none';
             document.getElementById('logoPlaceholder').style.display = 'block';
             document.getElementById('logoUploadArea').classList.remove('has-logo');
             document.getElementById('headerLogo').src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%234a90d9'/%3E%3Cstop offset='100%25' stop-color='%23667eea'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect fill='url(%23g)' width='100' height='100' rx='20'/%3E%3Ctext x='50' y='62' text-anchor='middle' fill='white' font-size='45'%3E✦%3C/text%3E%3C/svg%3E";
             
-            // Reset sliders
             document.getElementById('logoOpacity').value = 15;
             document.getElementById('logoSize').value = 70;
             document.getElementById('opacityValue').textContent = '15%';
