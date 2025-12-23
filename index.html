@@ -138,6 +138,7 @@
             display: flex; align-items: center; justify-content: center; gap: 10px;
         }
         .btn-generate:hover { transform: translateY(-2px); box-shadow: 0 20px 40px rgba(74,144,217,0.4); }
+        .btn-generate:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
         
         .result-section { display: none; margin-top: 30px; }
         .result-section.show { display: block; animation: fadeIn 0.5s ease; }
@@ -145,8 +146,8 @@
         
         .qr-showcase { background: linear-gradient(145deg, #12121f, #1a1a2e); border-radius: 28px; padding: 50px; text-align: center; }
         .qr-frame { position: relative; display: inline-block; background: white; padding: 25px; border-radius: 24px; box-shadow: 0 30px 60px rgba(0,0,0,0.4); }
-        #qrContainer { width: 300px; height: 300px; position: relative; }
-        #qrContainer canvas { border-radius: 12px; }
+        
+        #qrCanvas { border-radius: 12px; display: block; }
         
         .qr-info { margin-top: 18px; }
         .qr-info-name { font-size: 18px; font-weight: 600; color: #1a1a2e; }
@@ -168,6 +169,8 @@
         .app-tag { background: rgba(0,0,0,0.3); padding: 3px 10px; border-radius: 6px; font-size: 11px; }
         
         .footer { text-align: center; padding: 40px 0; color: #333; font-size: 11px; }
+        
+        .loading { color: #4a90d9; text-align: center; padding: 20px; }
     </style>
 </head>
 <body>
@@ -235,7 +238,7 @@
             <div class="card">
                 <div class="card-title"><span>🎨</span> QR Code Design</div>
                 <div class="form-group">
-                    <label>Company Logo</label>
+                    <label>Company Logo (Watermark)</label>
                     <div class="logo-upload-area" id="logoUploadArea" onclick="document.getElementById('logoInput').click()">
                         <div id="logoPlaceholder">
                             <div class="upload-icon">🏢</div>
@@ -293,7 +296,7 @@
                     </div>
                 </div>
                 
-                <button type="button" class="btn-generate" onclick="generateQR()">✨ Generate QR Code</button>
+                <button type="button" class="btn-generate" id="generateBtn" onclick="generateQR()">✨ Generate QR Code</button>
             </div>
         </div>
         
@@ -302,7 +305,7 @@
                 <div class="card-title"><span>🎉</span> Your QR Code is Ready!</div>
                 <div class="qr-showcase">
                     <div class="qr-frame">
-                        <div id="qrContainer"></div>
+                        <canvas id="qrCanvas" width="300" height="300"></canvas>
                         <div class="qr-info">
                             <div class="qr-info-name" id="resultName">-</div>
                             <div class="qr-info-title" id="resultTitle">-</div>
@@ -332,14 +335,58 @@
         <div class="footer">Digital Business Card Generator Pro</div>
     </div>
 
-    <!-- QR Code Styling Library -->
-    <script src="https://cdn.jsdelivr.net/npm/qr-code-styling@1.5.0/lib/qr-code-styling.js"></script>
+    <!-- QR Code Styling Library - Multiple CDN fallbacks -->
+    <script>
+        // Load QR library with fallback
+        function loadScript(url) {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = url;
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+        }
+        
+        // Try multiple CDNs
+        async function loadQRLibrary() {
+            const cdns = [
+                'https://unpkg.com/qr-code-styling@1.5.0/lib/qr-code-styling.js',
+                'https://cdn.jsdelivr.net/npm/qr-code-styling@1.5.0/lib/qr-code-styling.js',
+                'https://cdnjs.cloudflare.com/ajax/libs/qr-code-styling/1.5.0/qr-code-styling.js'
+            ];
+            
+            for (const cdn of cdns) {
+                try {
+                    await loadScript(cdn);
+                    if (typeof QRCodeStyling !== 'undefined') {
+                        console.log('QR library loaded from:', cdn);
+                        return true;
+                    }
+                } catch (e) {
+                    console.warn('Failed to load from:', cdn);
+                }
+            }
+            return false;
+        }
+        
+        // Initialize
+        let qrLibraryLoaded = false;
+        
+        loadQRLibrary().then(success => {
+            qrLibraryLoaded = success;
+            if (!success) {
+                alert('Error: Could not load QR library. Please check your internet connection.');
+                document.getElementById('generateBtn').disabled = true;
+            }
+        });
+    </script>
     
     <script>
         let companyLogo = null;
+        let companyLogoImg = null;
         let currentVCard = '';
         let currentVCardForDownload = '';
-        let qrCode = null;
         
         function handleLogoUpload(event) {
             const file = event.target.files[0];
@@ -347,6 +394,14 @@
                 const reader = new FileReader();
                 reader.onload = function(e) {
                     companyLogo = e.target.result;
+                    
+                    // Pre-load image
+                    companyLogoImg = new Image();
+                    companyLogoImg.onload = function() {
+                        console.log('Logo loaded successfully');
+                    };
+                    companyLogoImg.src = companyLogo;
+                    
                     document.getElementById('logoPreview').src = companyLogo;
                     document.getElementById('logoPreview').style.display = 'block';
                     document.getElementById('logoPlaceholder').style.display = 'none';
@@ -357,7 +412,7 @@
             }
         }
         
-        // Convert string to Quoted-Printable encoding for vCard
+        // Quoted-Printable encoding for Turkish characters
         function toQuotedPrintable(str) {
             const encoder = new TextEncoder();
             const bytes = encoder.encode(str);
@@ -373,27 +428,8 @@
             return result;
         }
         
-        // Check if string has non-ASCII characters
         function hasNonASCII(str) {
             return /[^\x00-\x7F]/.test(str);
-        }
-        
-        // Encode field value for vCard with Quoted-Printable if needed
-        function encodeField(fieldName, value, type = '') {
-            if (!value) return null;
-            
-            if (hasNonASCII(value)) {
-                const encoded = toQuotedPrintable(value);
-                if (type) {
-                    return `${fieldName};TYPE=${type};ENCODING=QUOTED-PRINTABLE;CHARSET=UTF-8:${encoded}`;
-                }
-                return `${fieldName};ENCODING=QUOTED-PRINTABLE;CHARSET=UTF-8:${encoded}`;
-            }
-            
-            if (type) {
-                return `${fieldName};TYPE=${type}:${value}`;
-            }
-            return `${fieldName}:${value}`;
         }
         
         function createVCard() {
@@ -411,33 +447,42 @@
             };
             
             const fullName = `${data.firstName} ${data.lastName}`;
-            const sortName = `${data.lastName};${data.firstName};;;`;
             
             let lines = ['BEGIN:VCARD', 'VERSION:3.0'];
             
-            // N field (structured name)
-            if (hasNonASCII(sortName)) {
+            // N field
+            if (hasNonASCII(data.lastName) || hasNonASCII(data.firstName)) {
                 lines.push(`N;ENCODING=QUOTED-PRINTABLE;CHARSET=UTF-8:${toQuotedPrintable(data.lastName)};${toQuotedPrintable(data.firstName)};;;`);
             } else {
-                lines.push(`N:${sortName}`);
+                lines.push(`N:${data.lastName};${data.firstName};;;`);
             }
             
-            // FN field (formatted name)
+            // FN field
             if (hasNonASCII(fullName)) {
                 lines.push(`FN;ENCODING=QUOTED-PRINTABLE;CHARSET=UTF-8:${toQuotedPrintable(fullName)}`);
             } else {
                 lines.push(`FN:${fullName}`);
             }
             
-            // ORG field
-            const orgField = encodeField('ORG', data.company);
-            if (orgField) lines.push(orgField);
+            // ORG
+            if (data.company) {
+                if (hasNonASCII(data.company)) {
+                    lines.push(`ORG;ENCODING=QUOTED-PRINTABLE;CHARSET=UTF-8:${toQuotedPrintable(data.company)}`);
+                } else {
+                    lines.push(`ORG:${data.company}`);
+                }
+            }
             
-            // TITLE field
-            const titleField = encodeField('TITLE', data.jobTitle);
-            if (titleField) lines.push(titleField);
+            // TITLE
+            if (data.jobTitle) {
+                if (hasNonASCII(data.jobTitle)) {
+                    lines.push(`TITLE;ENCODING=QUOTED-PRINTABLE;CHARSET=UTF-8:${toQuotedPrintable(data.jobTitle)}`);
+                } else {
+                    lines.push(`TITLE:${data.jobTitle}`);
+                }
+            }
             
-            // Phone fields (no encoding needed for numbers)
+            // Phones
             lines.push(`TEL;TYPE=CELL:${data.mobilePhone}`);
             if (data.workPhone) lines.push(`TEL;TYPE=WORK:${data.workPhone}`);
             
@@ -453,7 +498,7 @@
                 }
             }
             
-            // URLs (no encoding needed)
+            // URLs
             if (data.website) lines.push(`URL:${data.website}`);
             if (data.linkedin) lines.push(`URL:${data.linkedin}`);
             
@@ -462,7 +507,6 @@
             return lines.join('\r\n');
         }
         
-        // Create simple vCard for download (with BOM)
         function createVCardForDownload() {
             const data = {
                 firstName: document.getElementById('firstName').value.trim(),
@@ -498,6 +542,11 @@
         }
         
         function generateQR() {
+            if (!qrLibraryLoaded) {
+                alert('QR library not loaded. Please refresh the page.');
+                return;
+            }
+            
             const form = document.getElementById('cardForm');
             if (!form.checkValidity()) {
                 form.reportValidity();
@@ -507,73 +556,131 @@
             currentVCard = createVCard();
             currentVCardForDownload = createVCardForDownload();
             
-            console.log('vCard for QR:', currentVCard);
-            
             const primaryColor = document.getElementById('primaryColor').value;
             const secondaryColor = document.getElementById('secondaryColor').value;
             const bgColor = document.getElementById('bgColor').value;
             const useGradient = document.getElementById('useGradient').checked;
+            const logoOpacity = document.getElementById('logoOpacity').value / 100;
+            const logoSize = document.getElementById('logoSize').value / 100;
             
-            const container = document.getElementById('qrContainer');
-            container.innerHTML = '';
+            const canvas = document.getElementById('qrCanvas');
+            const ctx = canvas.getContext('2d');
+            const size = 300;
             
-            const qrOptions = {
-                width: 300,
-                height: 300,
-                type: 'canvas',
-                data: currentVCard,
-                margin: 10,
-                qrOptions: {
-                    typeNumber: 0,
-                    mode: 'Byte',
-                    errorCorrectionLevel: 'M'
-                },
-                dotsOptions: {
-                    type: 'rounded',
-                    color: primaryColor,
-                    gradient: useGradient ? {
-                        type: 'linear',
-                        rotation: 45,
-                        colorStops: [
-                            { offset: 0, color: primaryColor },
-                            { offset: 1, color: secondaryColor }
-                        ]
-                    } : undefined
-                },
-                backgroundOptions: {
-                    color: bgColor
-                },
-                cornersSquareOptions: {
-                    type: 'extra-rounded',
-                    color: primaryColor
-                },
-                cornersDotOptions: {
-                    type: 'dot',
-                    color: secondaryColor
-                }
+            // Step 1: Draw background
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(0, 0, size, size);
+            
+            // Step 2: Draw logo watermark if exists
+            const drawQROnCanvas = () => {
+                // Create QR code
+                const qrOptions = {
+                    width: size,
+                    height: size,
+                    type: 'canvas',
+                    data: currentVCard,
+                    margin: 10,
+                    qrOptions: {
+                        typeNumber: 0,
+                        mode: 'Byte',
+                        errorCorrectionLevel: 'M'
+                    },
+                    dotsOptions: {
+                        type: 'rounded',
+                        color: primaryColor,
+                        gradient: useGradient ? {
+                            type: 'linear',
+                            rotation: 45,
+                            colorStops: [
+                                { offset: 0, color: primaryColor },
+                                { offset: 1, color: secondaryColor }
+                            ]
+                        } : undefined
+                    },
+                    backgroundOptions: {
+                        color: 'transparent'
+                    },
+                    cornersSquareOptions: {
+                        type: 'extra-rounded',
+                        color: primaryColor
+                    },
+                    cornersDotOptions: {
+                        type: 'dot',
+                        color: secondaryColor
+                    }
+                };
+                
+                const qrCode = new QRCodeStyling(qrOptions);
+                
+                // Create temp container
+                const tempDiv = document.createElement('div');
+                tempDiv.style.position = 'absolute';
+                tempDiv.style.left = '-9999px';
+                document.body.appendChild(tempDiv);
+                
+                qrCode.append(tempDiv);
+                
+                // Wait for QR to render, then copy to our canvas
+                setTimeout(() => {
+                    const qrCanvas = tempDiv.querySelector('canvas');
+                    if (qrCanvas) {
+                        ctx.drawImage(qrCanvas, 0, 0, size, size);
+                    }
+                    document.body.removeChild(tempDiv);
+                    
+                    // Update info
+                    document.getElementById('resultName').textContent = 
+                        `${document.getElementById('firstName').value} ${document.getElementById('lastName').value}`;
+                    document.getElementById('resultTitle').textContent = 
+                        document.getElementById('jobTitle').value;
+                    
+                    // Show result
+                    document.getElementById('resultSection').classList.add('show');
+                    setTimeout(() => {
+                        document.getElementById('resultSection').scrollIntoView({ behavior: 'smooth' });
+                    }, 100);
+                }, 300);
             };
             
-            qrCode = new QRCodeStyling(qrOptions);
-            qrCode.append(container);
-            
-            document.getElementById('resultName').textContent = 
-                `${document.getElementById('firstName').value} ${document.getElementById('lastName').value}`;
-            document.getElementById('resultTitle').textContent = 
-                document.getElementById('jobTitle').value;
-            
-            document.getElementById('resultSection').classList.add('show');
-            setTimeout(() => {
-                document.getElementById('resultSection').scrollIntoView({ behavior: 'smooth' });
-            }, 100);
+            // Draw logo first if exists
+            if (companyLogo && companyLogoImg && companyLogoImg.complete) {
+                ctx.globalAlpha = logoOpacity;
+                const w = size * logoSize;
+                const h = (companyLogoImg.height / companyLogoImg.width) * w;
+                const x = (size - w) / 2;
+                const y = (size - h) / 2;
+                ctx.drawImage(companyLogoImg, x, y, w, h);
+                ctx.globalAlpha = 1;
+                drawQROnCanvas();
+            } else if (companyLogo) {
+                // Logo not yet loaded, load it first
+                const img = new Image();
+                img.onload = function() {
+                    ctx.globalAlpha = logoOpacity;
+                    const w = size * logoSize;
+                    const h = (img.height / img.width) * w;
+                    const x = (size - w) / 2;
+                    const y = (size - h) / 2;
+                    ctx.drawImage(img, x, y, w, h);
+                    ctx.globalAlpha = 1;
+                    drawQROnCanvas();
+                };
+                img.onerror = function() {
+                    console.error('Failed to load logo');
+                    drawQROnCanvas();
+                };
+                img.src = companyLogo;
+            } else {
+                drawQROnCanvas();
+            }
         }
         
         function downloadQR() {
-            if (qrCode) {
-                qrCode.download({
-                    name: `${document.getElementById('firstName').value}_${document.getElementById('lastName').value}_QR`,
-                    extension: 'png'
-                });
-            }
+            const canvas = document.getElementById('qrCanvas');
+            const link = document.createElement('a');
+            link.download = `${document.getElementById('firstName').value}_${document.getElementById('lastName').value}_QR.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
         }
         
         function downloadVCard() {
@@ -596,8 +703,8 @@
         function resetForm() {
             document.getElementById('cardForm').reset();
             document.getElementById('resultSection').classList.remove('show');
-            document.getElementById('qrContainer').innerHTML = '';
             companyLogo = null;
+            companyLogoImg = null;
             document.getElementById('logoPreview').style.display = 'none';
             document.getElementById('logoPlaceholder').style.display = 'block';
             document.getElementById('logoUploadArea').classList.remove('has-logo');
@@ -606,6 +713,13 @@
             document.getElementById('logoSize').value = 70;
             document.getElementById('opacityValue').textContent = '15%';
             document.getElementById('sizeValue').textContent = '70%';
+            
+            // Clear canvas
+            const canvas = document.getElementById('qrCanvas');
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, 300, 300);
+            
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
     </script>
