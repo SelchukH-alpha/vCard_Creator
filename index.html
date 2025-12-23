@@ -842,7 +842,7 @@
                             <label>Logo Opacity</label>
                             <span class="slider-value" id="opacityValue">15%</span>
                         </div>
-                        <input type="range" id="logoOpacity" min="5" max="80" value="15" oninput="updateSliderValue('logoOpacity', 'opacityValue', '%')">
+                        <input type="range" id="logoOpacity" min="5" max="40" value="15" oninput="updateSliderValue('logoOpacity', 'opacityValue', '%')">
                     </div>
                     
                     <div class="slider-group">
@@ -961,17 +961,19 @@
                 linkedin: document.getElementById('linkedin').value
             };
             
+            // vCard 3.0 with UTF-8 encoding for Turkish/special characters
             let vcard = `BEGIN:VCARD
 VERSION:3.0
-N:${data.lastName};${data.firstName};;;
-FN:${data.firstName} ${data.lastName}
-ORG:${data.company}
-TITLE:${data.jobTitle}
+PRODID:-//Digital Business Card Generator//EN
+N;CHARSET=UTF-8:${data.lastName};${data.firstName};;;
+FN;CHARSET=UTF-8:${data.firstName} ${data.lastName}
+ORG;CHARSET=UTF-8:${data.company}
+TITLE;CHARSET=UTF-8:${data.jobTitle}
 TEL;TYPE=CELL:${data.mobilePhone}`;
             
             if (data.workPhone) vcard += `\nTEL;TYPE=WORK:${data.workPhone}`;
             vcard += `\nEMAIL;TYPE=WORK:${data.workEmail}`;
-            if (data.address) vcard += `\nADR;TYPE=WORK:;;${data.address};;;;`;
+            if (data.address) vcard += `\nADR;TYPE=WORK;CHARSET=UTF-8:;;${data.address};;;;`;
             if (data.website) vcard += `\nURL:${data.website}`;
             if (data.linkedin) vcard += `\nURL;TYPE=LinkedIn:${data.linkedin}`;
             vcard += `\nEND:VCARD`;
@@ -1120,7 +1122,9 @@ TEL;TYPE=CELL:${data.mobilePhone}`;
             const firstName = document.getElementById('firstName').value;
             const lastName = document.getElementById('lastName').value;
             
-            const blob = new Blob([currentVCard], { type: 'text/vcard' });
+            // Add UTF-8 BOM for proper Turkish character support
+            const BOM = '\uFEFF';
+            const blob = new Blob([BOM + currentVCard], { type: 'text/vcard;charset=utf-8' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
